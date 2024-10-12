@@ -1,0 +1,8 @@
+.vscode/
+.idea/
+*.ipr
+*.iws
+*.iml
+.venv/
+
+/config.json
