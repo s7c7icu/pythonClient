@@ -68,7 +68,9 @@ class GitHubUpload(UploadMethod):
         
         return GitHubUpload(
             auth_token=d.get('auth_token', ''),
-            repo=d.get('repo', '')
+            committer=d.get('committer', {}),
+            meta_repo=d.get('meta_repo', ''),
+            data_repo=d.get('data_repo', '')
         )
     
     def upload_file(self, type, uri: str, content: bytes) -> bool:

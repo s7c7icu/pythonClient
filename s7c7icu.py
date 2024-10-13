@@ -104,6 +104,18 @@ def compare_hash(file_data, hash_object):
         "sha3_256": hashlib.sha3_256,
         "sha3_384": hashlib.sha3_384,
     }
+    algorithm_alias = {
+        'sha512': ['sha-512', 'sha_512'],
+        'sha256': ['sha-256', 'sha_256'],
+        'sha384': ['sha-384', 'sha_384'],
+        'sha3': ['sha3-512', 'sha3_512'],
+        'sha3_256': ['sha3-256'],
+        'sha3_384': ['sha3-384']
+    };
+    for alg, aliases in algorithm_alias.items():
+        for alias in aliases:
+            if alias in hash_object and alg not in hash_object:
+                hash_object[alg] = hash_object[alias]
     
     for alg, expected_hash in hash_object.items():
         if alg not in known_hash_algorithms:
@@ -457,10 +469,12 @@ def run_upload_program(p_name: str, upload_method_from_config: typing.Callable[[
 
     if p_name == '__main__':
         parser = argparse.ArgumentParser(description="s7c7icu uploadClient")
-        parser.add_argument('path_to_file', type=str, help="路径必须提供。")
-        parser.add_argument('-c', '--config', type=str, help="配置文件路径，默认为 './config'")
-        parser.add_argument('-n', '--filename', type=str, help="文件名重写，默认为与路径最后一个 '/' 后的子串一致。")
-        parser.add_argument('-p', '--dumplist', type=str, help="将文件路径和URL追加到此文件, 可留空")
+        parser.add_argument('path_to_file', type=str, help="Must be provided.")
+        parser.add_argument('-c', '--config', type=str, help="Path of the config file, defaulting to './config'")
+        parser.add_argument('-n', '--filename', type=str, help="Override the filename, defaulting to the"
+            "substring of the file path after the very last '/'.")
+        parser.add_argument('-p', '--dumplist', type=str, help="Optionally, you can append filename and uploaded URLs"
+            "to a file specified here. Useful for batches.")
         args = parser.parse_args()
 
         def file_lister(dump_file: str) -> typing.Callable[[str, str], None]:
