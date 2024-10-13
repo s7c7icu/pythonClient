@@ -83,4 +83,4 @@ class GitHubUpload(UploadMethod):
         return self.gh_repo_access[type].check_existence(uri)
 
 
-run_upload_program(GitHubUpload.from_config)
+run_upload_program(__name__, GitHubUpload.from_config)

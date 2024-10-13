@@ -4,5 +4,6 @@
 *.iws
 *.iml
 .venv/
+__pycache__/
 
 /config.json

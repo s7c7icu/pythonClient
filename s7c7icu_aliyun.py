@@ -27,16 +27,18 @@ class AliyunOSSUpload(UploadMethod):
         # 提取 Aliyun OSS 配置
         access_key_id = config_dict.get('access_key_id')
         access_key_secret = config_dict.get('access_key_secret')
-        bucket_name = config_dict.get('bucket_name')
+        bucket_name = config_dict.get('bucket_name', {})
         endpoint = config_dict.get('endpoint')
 
-        if not all([access_key_id, access_key_secret, bucket_name, endpoint]):
+        if (not all([access_key_id, access_key_secret, bucket_name, endpoint]) or
+            (not all((bucket_name.get('meta'), bucket_name.get('data'))))):
             raise ValueError("Missing required Aliyun OSS configuration fields")
 
         return AliyunOSSUpload(
             access_key_id=access_key_id,
             access_key_secret=access_key_secret,
-            bucket_name=bucket_name,
+            bucket_name_meta=bucket_name['meta'],
+            bucket_name_data=bucket_name['data'],
             endpoint=endpoint
         )
 
@@ -71,4 +73,4 @@ class AliyunOSSUpload(UploadMethod):
             warnings.warn(f"Error during checking existence in Aliyun OSS: {e}")
             return False
 
-run_upload_program(AliyunOSSUpload.from_config)
+run_upload_program(__name__, AliyunOSSUpload.from_config)

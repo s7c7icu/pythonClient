@@ -86,7 +86,7 @@ def base64_encode(b: bytes, urlsafe=False):
 
 # AES 解密
 def decrypt(buffer, password):
-    raw_password = base64.b64decode(password)
+    raw_password = base64.b64decode(password, altchars=b'-_')
     nonce = raw_password[:24]
     key = raw_password[24:]
     box = SecretBox(key)
@@ -260,12 +260,12 @@ class UploadMethod(ABC):
     META = 0
     DATA = 1
 
-    def upload_meta(self, json, slug_factory: typing.Callable[[], str]) -> str:
+    def upload_meta(self, _json, slug_factory: typing.Callable[[], str]) -> str:
         '''
         :return: The slug.
         '''
         # Upload meta
-        meta_dump = json.dumps(json)
+        meta_dump = json.dumps(_json)
         while True:
             meta_slug = slug_factory()
             uri = f'{meta_slug[0]}/{meta_slug}.json'
@@ -392,7 +392,7 @@ def upload(filename: str,
         'schema': SUPPORTED_MAX_SCHEMA,
         'alg': config.encrypt_algorithms,
         'size': size,
-        'filename': base64_encode(filename).decode('ascii'),
+        'filename': base64_encode(filename.encode('utf-8')).decode('ascii'),
         'hash': {
             'sha256': hashlib.sha256(file_content).hexdigest(),
             'sha512': hashlib.sha512(file_content).hexdigest(),
@@ -416,10 +416,10 @@ def upload(filename: str,
 
     link = f'{config.download_url}/{meta_slug}#{password}'
     
-    feedback(f'Successfully created meta at {config.meta_url}/{uri}. Download link: {link}')
+    feedback(f'Successfully created meta. Download link: {link}')
     return link
 
-def run_upload_program(upload_method_from_config: typing.Callable[[UploadConfig], UploadMethod]):
+def run_upload_program(p_name: str, upload_method_from_config: typing.Callable[[UploadConfig], UploadMethod]):
     try:
         import qrcode
         def print_as_qr(link: str):
@@ -455,7 +455,7 @@ def run_upload_program(upload_method_from_config: typing.Callable[[UploadConfig]
         url_callback(upload(filename, content, config, upload_method_from_config(config), print))
 
 
-    if __name__ == '__main__':
+    if p_name == '__main__':
         parser = argparse.ArgumentParser(description="s7c7icu uploadClient")
         parser.add_argument('path_to_file', type=str, help="路径必须提供。")
         parser.add_argument('-c', '--config', type=str, help="配置文件路径，默认为 './config'")
@@ -478,3 +478,38 @@ def run_upload_program(upload_method_from_config: typing.Callable[[UploadConfig]
             args.filename or args.path_to_file[args.path_to_file.replace('\\', '/').rfind('/') + 1:],
             file_callback
         ) or 0)
+
+
+if __name__ == '__main__':
+    import os.path
+
+    parser = argparse.ArgumentParser(description='s7c7icu downloadClient')
+    parser.add_argument('uri', type=str)
+    parser.add_argument('-o', '--outputdir', type=str, default='.')
+    parser.add_argument('-f', '--filename', type=str, required=False)
+
+    args = parser.parse_args()
+
+    def feedback(_d: dict):
+        d = dict(_d)
+        ret = d.get('name', '')
+        if not ret:
+            return
+        del d['name']
+        if d:
+            ret += '...' + json.dumps(d)
+        print(ret)
+        return
+    
+    def file_receiver(content: bytes, filename: str):
+        if args.filename:
+            filename = args.filename
+        pathname = os.path.join(args.outputdir, filename)
+        with open(pathname, 'wb') as f:
+            f.write(content)
+    
+    download(
+        info = args.uri,
+        feedback = feedback,
+        file_receiver = file_receiver
+    )
