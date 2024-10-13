@@ -22,7 +22,7 @@ download and GitHub-specified upload scripts:
 ```bash
 pip install -r requirements.txt
 ```
-If you're going to use the liyun OSS upload script:
+If you're going to use the Aliyun OSS upload script:
 ```bash
 pip install -r requirements-aliyun.txt
 ```
