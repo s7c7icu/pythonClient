@@ -138,7 +138,9 @@ you'll find its `<meta>` site on `https://meta.s.7c7.icu`, so the meta file is o
 
 ### Meta File Format
 
-The meta file is a JSON object that stores metadata for an uploaded file. This metadata includes information such as the file’s schema version, encryption algorithms, size, hash values, and the method used to retrieve the file data. Below is an explanation of the format and its fields.
+The meta file is a JSON object that stores metadata for an uploaded file. This metadata
+includes information such as encryption algorithms, size, hash values, and the method
+used to retrieve the encrypted file data. Below is an explanation of the format and its fields.
 
 #### Example Meta File
 
@@ -171,7 +173,7 @@ The meta file is a JSON object that stores metadata for an uploaded file. This m
   Specifies the encryption and encoding algorithms applied to the file.  
   For example, `"deflate+aes+base64"` means the file has been:
   1. Compressed using the `deflate` algorithm,
-  2. Encrypted with `AES`,
+  2. Encrypted with `AES` (Salsa20),
   3. Encoded in Base64.
 
 - **`size`**:  
@@ -187,7 +189,7 @@ The meta file is a JSON object that stores metadata for an uploaded file. This m
   Supported algorithms are: `sha512`, `sha256`, `sha384`, `sha3_256`, `sha3_384`.
 
 - **`data`**:  
-  Describes the method to retrieve the file content. It can contain one of the following:
+  Describes the method to retrieve the encrypted file content. It can contain one of the following:
   - **`fetch`**: A URL where the file can be downloaded.
   - **`base64`**: The file content encoded as a Base64 string (used for smaller files).
   - **`raw`**: The raw file content (for very small files, stored as plain text).
@@ -195,7 +197,7 @@ The meta file is a JSON object that stores metadata for an uploaded file. This m
 #### Example Usage in Download Process
 
 1. The **`schema`** field is checked to ensure the meta file format is compatible with the client processing it.
-2. The **`alg`** field determines the steps needed to decode, decrypt, and decompress the file (e.g., `deflate`, `AES`, `Base64`).
+2. The **`alg`** field determines the steps needed to decode, decrypt, and decompress the file (supported: `deflate`, `aes`, `base64`).
 3. The **`size`** field allows the client to verify that the decrypted and decompressed file has the correct size.
 4. The **`hash`** values are used to verify the integrity of the retrieved file content.
 5. The **`data`** field provides the method to retrieve the file, whether through a URL (`fetch`), directly as Base64-encoded content (`base64`), or as raw content (`raw`).
