@@ -547,6 +547,7 @@ if __name__ == '__main__':
         if args.filename:
             filename = args.filename
         pathname = os.path.join(args.outputdir, filename)
+        print('Saved file content to ' + pathname)
         with open(pathname, 'wb') as f:
             f.write(content)
     
