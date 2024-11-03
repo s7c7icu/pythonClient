@@ -37,7 +37,7 @@ class SizeMismatchError(InvalidFileException):
 class InvalidAlgorithmError(MetaDataError):
     '''Invalid or unrecognized encoding algorithm.'''
 
-SUPPORTED_MAX_SCHEMA = 2
+SUPPORTED_MAX_SCHEMA = 3
 
 # info 对象类
 class FileInfo:
@@ -86,6 +86,7 @@ def base64_encode(b: bytes, urlsafe=False):
 
 # AES 解密
 def decrypt(buffer, password):
+    password += '=' * (-len(password) % 4)
     raw_password = base64.b64decode(password, altchars=b'-_')
     nonce = raw_password[:24]
     key = raw_password[24:]
@@ -123,6 +124,23 @@ def compare_hash(file_data, hash_object):
         calculated_hash = known_hash_algorithms[alg](file_data).hexdigest()
         if expected_hash != calculated_hash:
             raise HashMismatchError(f"{alg} hash mismatch: expected {expected_hash}, got {calculated_hash}")
+
+def _salters() -> typing.Dict[str, typing.Callable[[dict], typing.Callable[[bytes, dict], None]]]:
+    ret = {'none': (lambda _: compare_hash)}
+    def _post_append(salt_conf: dict) -> typing.Callable[[bytes, dict], None]:
+        salt = base64.b64decode(salt_conf['salt'])
+        return lambda file_data, hash_object: compare_hash(file_data + salt, hash_object)
+    ret['s7c7icu:postappend-v0'] = _post_append
+
+    return ret
+salters = _salters()
+
+def compare_hash_salted(file_data: bytes, hash_object: dict, salter_object: dict | None):
+    if (not salter_object) or salter_object.get('name', None) not in salters:
+        salter = salters['none']
+    else:
+        salter = salters[salter_object.get('name', 'none')]
+    return salter(salter_object)(file_data, hash_object)
 
 def _has_nil(*args):
     for item in args:
@@ -247,7 +265,11 @@ def download(info: FileInfo | str,
                 raise SizeMismatchError("File size mismatch")
         
         # 验证哈希值
-        compare_hash(file_data, meta["hash"])
+        compare_hash_salted(
+            file_data,
+            meta["hash"],
+            meta.get('salter') if meta.get('schema') >= 3 else None
+        )
         
         feedback({"name": "Downloading"})
         
@@ -398,6 +420,8 @@ def upload(filename: str,
            feedback: typing.Callable[[str], None] | None = None) -> str:
     password: str = base64_encode(os.urandom(24 + 32), urlsafe=True).decode('ascii')
     encrypted_content: bytes = encrypt_file(file_content, password, config.encrypt_algorithms)
+    salt: bytes = os.urandom(32)
+    salted_original_content = file_content + salt
 
     size = len(file_content)
     meta = {
@@ -406,9 +430,13 @@ def upload(filename: str,
         'size': size,
         'filename': base64_encode(filename.encode('utf-8')).decode('ascii'),
         'hash': {
-            'sha256': hashlib.sha256(file_content).hexdigest(),
-            'sha512': hashlib.sha512(file_content).hexdigest(),
-        }
+            'sha256': hashlib.sha256(salted_original_content).hexdigest(),
+            'sha512': hashlib.sha512(salted_original_content).hexdigest(),
+        },
+        'salter': {
+            'name': 's7c7icu:postappend-v0',
+            'salt': base64.b64encode(salt).decode('latin1'),
+        },
     }
     feedback('Generated meta')
 
