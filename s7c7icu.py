@@ -505,17 +505,34 @@ def upload(filename: str,
            config: UploadConfig,
            upload_method: UploadMethod,
            feedback: typing.Callable[[str], None] | None = None) -> str:
+    properties = config.custom.get('properties', [])
+    if not isinstance(properties, list):
+        raise ValueError("Properties is not an array")
+    flags = []
+
     password: str = base64_encode(os.urandom(24 + 32), urlsafe=True).decode('ascii')
-    encrypted_content: bytes = encrypt_file(file_content, password, config.encrypt_algorithms)
+
+    content_to_encrypt = file_content
+    if 'encryptFilename' in properties:
+        fn_bytes = filename.encode('utf8')
+        content_to_encrypt = len(fn_bytes).to_bytes(2) + fn_bytes + file_content
+        filename = _gen_code(8, string.digits + string.ascii_letters + '+/')
+        flags.append('filename-preappend')
+
+    encrypted_content: bytes = encrypt_file(content_to_encrypt, password, config.encrypt_algorithms)
+
     salt: bytes = os.urandom(32)
     salted_original_content = file_content + salt
+
+    if 'asZipIndex' in properties:
+        flags.append('zipindex')
 
     size = len(file_content)
     meta = {
         'schema': SUPPORTED_MAX_SCHEMA,
         'alg': config.encrypt_algorithms,
         'size': size,
-        'filename': base64_encode(filename.encode('utf-8')).decode('ascii'),
+        'filename': base64_encode(filename.encode('utf8')).decode('ascii'),
         'hash': {
             'sha256': hashlib.sha256(salted_original_content).hexdigest(),
             'sha512': hashlib.sha512(salted_original_content).hexdigest(),
@@ -524,6 +541,7 @@ def upload(filename: str,
             'name': 's7c7icu:postappend-v0',
             'salt': base64.b64encode(salt).decode('latin1'),
         },
+        'flags': flags,
     }
     feedback('Generated meta')
 
