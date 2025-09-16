@@ -1,5 +1,6 @@
 import argparse
 import base64
+import io
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import requests
 import urllib.parse
 import warnings
 import zlib
+import zipfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from nacl.secret import SecretBox
@@ -45,7 +47,11 @@ class InvalidAlgorithmError(MetaDataError):
     """Invalid or unrecognized encoding algorithm."""
 
 
-SUPPORTED_MAX_SCHEMA = 3
+class InvalidZipIndexError(ValueError):
+    """Invalid zip index."""
+
+
+SUPPORTED_MAX_SCHEMA = 4
 
 
 # info 对象类
@@ -60,14 +66,19 @@ class FileInfo:
             raise ValueError("FileInfo fields must be strings")
 
 
-# 获取META数据
-def get_meta(info: FileInfo):
-    meta_url = f"{info.meta}/{info.slug[0]}/{info.slug}.json"
-    response = requests.get(meta_url)
+def fetch(url: str, exception_message: str = 'Failed to fetch meta') -> requests.Response:
+    response = requests.get(url)
     try:
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        raise FetchError('Failed to fetch meta', e)
+        raise FetchError(exception_message, e)
+    return response
+
+
+# 获取META数据
+def get_meta(info: FileInfo):
+    meta_url = f"{info.meta}/{info.slug[0]}/{info.slug}.json"
+    response = fetch(meta_url)
     meta = response.json()
 
     # 类型检查
@@ -91,6 +102,8 @@ def validate_meta(meta):
         raise MetaDataError("Meta data does not contain AES encryption")
     if not meta['hash']:
         raise MetaDataError("Meta hash data is missing")
+    if meta['schema'] >= 4 and meta.get('flags') and (not isinstance(meta['flags'], list)):
+        raise MetaDataError("Flags isn't an array")
 
 
 def base64_encode(b: bytes, urlsafe=False):
@@ -170,14 +183,19 @@ def _has_nil(*args):
     return False
 
 
-def parse_url_to_fileinfo(url: str) -> FileInfo:
+def parse_url_to_fileinfo(url: str, default_meta: str = None) -> FileInfo:
     # 处理 s7c7icu://<slug>/<password>/<meta> 格式的 URL
     if url.startswith("s7c7icu://"):
         try:
             # 去掉 scheme 部分
             stripped_url = url[len("s7c7icu://"):]
             # 分割 slug, password, meta
-            slug, password, encoded_meta = stripped_url.split("/", 2)
+            split_result = stripped_url.split('/', 2)
+            if len(split_result) == 2 and default_meta:
+                slug, password = split_result
+                encoded_meta = default_meta
+            else:
+                slug, password, encoded_meta = split_result
             # 还原 URL 编码的 meta
             meta = urllib.parse.unquote(encoded_meta)
             return FileInfo(meta=meta, slug=slug, password=password)
@@ -218,6 +236,36 @@ def parse_url_to_fileinfo(url: str) -> FileInfo:
     # 如果都不满足，抛出 ValueError
     else:
         raise ValueError("Unsupported URL format")
+
+
+def add_file_to_zip(zf: zipfile.ZipFile, filename: str, data: dict, default_meta: str, feedback: typing.Callable[[dict], None]):
+    if filename.endswith('/'):
+        zf.mkdir(filename)
+    else:
+        if 'fetch' in data:
+            if data['fetch'].startswith('s7c7icu://'):
+                file_info = parse_url_to_fileinfo(data['fetch'], default_meta)
+                contents = download_to_bytes(file_info, feedback)
+            else:
+                contents = fetch(data['fetch'], 'Failed to fetch remote resource')
+            zf.writestr(filename, contents)
+        elif 'base64' in data:
+            zf.writestr(filename, base64.b64decode(data['base64']))
+        elif 'raw' in data:
+            zf.writestr(filename, data['raw'])
+        else:
+            zf.writestr(filename, b'')
+
+
+def parse_zip_info(file_data: bytes, feedback: typing.Callable[[dict], None], default_meta: str) -> bytes:
+    entries = json.loads(file_data)
+    if not isinstance(entries, dict):
+        raise InvalidZipIndexError("Zip index is not an object")
+    with io.BytesIO() as res_data:
+        with zipfile.ZipFile(res_data, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=5) as zf:
+            for name, info in entries.items():
+                feedback({'name': 'Adding file to zip', 'detail': name})
+                add_file_to_zip(zf, name, info, default_meta, feedback)
 
 
 # 主函数
@@ -281,6 +329,12 @@ def download(info: FileInfo | str,
             else:
                 raise InvalidAlgorithmError(f"Unknown algorithm: {algorithm}")
 
+        # Schema 4: filename-preappend
+        if meta['schema'] >= 4 and 'flags' in meta and 'filename-preappend' in meta['flags']:
+            filename_length = int.from_bytes(file_data[:2]) # unsigned, big endian
+            meta['filename'] = base64_encode(file_data[2 : filename_length + 2])
+            file_data = file_data[filename_length + 2:]
+
         feedback({"name": "Verifying"})
 
         # 验证文件大小
@@ -298,6 +352,10 @@ def download(info: FileInfo | str,
         feedback({"name": "Downloading"})
 
         filename = base64.b64decode(meta.get("filename", f"{info.slug}.bin")).decode()
+
+        # Schema 4: zipindex
+        if meta['schema'] >= 4 and 'flags' in meta and 'zipindex' in meta['flags']:
+            file_data = parse_zip_info(file_data, feedback, info.meta)
 
         if file_receiver:
             file_receiver(file_data, filename)
