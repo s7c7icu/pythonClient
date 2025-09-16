@@ -429,6 +429,7 @@ class UploadConfig:
     meta_url: str
     data_url: str
     download_url: str
+    global_properties: list = field(default_factory=list)
     custom: dict = field(default_factory=dict)  # 自定义字段，可能包含额外信息
 
     @staticmethod
@@ -442,7 +443,8 @@ class UploadConfig:
             meta_url=config_dict.get('meta_url', ''),
             data_url=config_dict.get('data_url', ''),
             download_url=config_dict.get('download_url', ''),
-            custom=config_dict.get('custom', {})
+            global_properties=config_dict.get('global_properties', []),
+            custom=config_dict.get('custom', {}),
         )
 
     def to_dict(self) -> dict:
@@ -455,7 +457,8 @@ class UploadConfig:
             'meta_url': self.meta_url,
             'data_url': self.data_url,
             'download_url': self.download_url,
-            'custom': self.custom
+            'global_properties': self.global_properties,
+            'custom': self.custom,
         }
 
 
@@ -505,7 +508,7 @@ def upload(filename: str,
            config: UploadConfig,
            upload_method: UploadMethod,
            feedback: typing.Callable[[str], None] | None = None) -> str:
-    properties = config.custom.get('properties', [])
+    properties = config.global_properties
     if not isinstance(properties, list):
         raise ValueError("Properties is not an array")
     flags = []
