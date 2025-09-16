@@ -15,29 +15,38 @@ from dataclasses import dataclass, field
 from nacl.secret import SecretBox
 from nacl.exceptions import CryptoError
 
+
 # 自定义异常类
 class MetaDataError(ValueError):
-    '''Exceptions of the `meta` JSON.'''
+    """Exceptions of the `meta` JSON."""
+
 
 class FetchError(Exception):
-    '''Exceptions when fetching meta, data, etc., usually are network errors.'''
+    """Exceptions when fetching meta, data, etc., usually are network errors."""
+
 
 class InvalidFileException(Exception):
-    '''Base exception for all errors related to malformed encrypted data.'''
+    """Base exception for all errors related to malformed encrypted data."""
+
 
 class AESDecryptionError(InvalidFileException):
-    '''An AES decryption failure.'''
+    """An AES decryption failure."""
+
 
 class HashMismatchError(InvalidFileException):
-    '''File hash does not match as provided.'''
+    """File hash does not match as provided."""
+
 
 class SizeMismatchError(InvalidFileException):
-    '''File size does not match as provided.'''
+    """File size does not match as provided."""
+
 
 class InvalidAlgorithmError(MetaDataError):
-    '''Invalid or unrecognized encoding algorithm.'''
+    """Invalid or unrecognized encoding algorithm."""
+
 
 SUPPORTED_MAX_SCHEMA = 3
+
 
 # info 对象类
 class FileInfo:
@@ -50,6 +59,7 @@ class FileInfo:
         if not isinstance(self.meta, str) or not isinstance(self.slug, str) or not isinstance(self.password, str):
             raise ValueError("FileInfo fields must be strings")
 
+
 # 获取META数据
 def get_meta(info: FileInfo):
     meta_url = f"{info.meta}/{info.slug[0]}/{info.slug}.json"
@@ -59,7 +69,7 @@ def get_meta(info: FileInfo):
     except requests.exceptions.HTTPError as e:
         raise FetchError('Failed to fetch meta', e)
     meta = response.json()
-    
+
     # 类型检查
     if not isinstance(meta, dict):
         raise MetaDataError("Meta must be a dictionary")
@@ -69,8 +79,9 @@ def get_meta(info: FileInfo):
         raise MetaDataError("Invalid or missing algorithm in meta")
     if 'hash' not in meta or not isinstance(meta['hash'], dict):
         raise MetaDataError("Invalid or missing hash in meta")
-    
+
     return meta
+
 
 # 校验 META 数据的合法性
 def validate_meta(meta):
@@ -81,8 +92,10 @@ def validate_meta(meta):
     if not meta['hash']:
         raise MetaDataError("Meta hash data is missing")
 
+
 def base64_encode(b: bytes, urlsafe=False):
     return (base64.urlsafe_b64encode if urlsafe else base64.b64encode)(b)
+
 
 # AES 解密
 def decrypt(buffer, password):
@@ -95,6 +108,7 @@ def decrypt(buffer, password):
         return box.decrypt(buffer, nonce)
     except CryptoError as e:
         raise AESDecryptionError(e)
+
 
 # 比较哈希值
 def compare_hash(file_data, hash_object):
@@ -112,12 +126,12 @@ def compare_hash(file_data, hash_object):
         'sha3': ['sha3-512', 'sha3_512'],
         'sha3_256': ['sha3-256'],
         'sha3_384': ['sha3-384']
-    };
+    }
     for alg, aliases in algorithm_alias.items():
         for alias in aliases:
             if alias in hash_object and alg not in hash_object:
                 hash_object[alg] = hash_object[alias]
-    
+
     for alg, expected_hash in hash_object.items():
         if alg not in known_hash_algorithms:
             raise InvalidAlgorithmError(f"Unknown algorithm: {alg}")
@@ -125,15 +139,21 @@ def compare_hash(file_data, hash_object):
         if expected_hash != calculated_hash:
             raise HashMismatchError(f"{alg} hash mismatch: expected {expected_hash}, got {calculated_hash}")
 
+
 def _salters() -> typing.Dict[str, typing.Callable[[dict], typing.Callable[[bytes, dict], None]]]:
     ret = {'none': (lambda _: compare_hash)}
+
     def _post_append(salt_conf: dict) -> typing.Callable[[bytes, dict], None]:
         salt = base64.b64decode(salt_conf['salt'])
         return lambda file_data, hash_object: compare_hash(file_data + salt, hash_object)
+
     ret['s7c7icu:postappend-v0'] = _post_append
 
     return ret
+
+
 salters = _salters()
+
 
 def compare_hash_salted(file_data: bytes, hash_object: dict, salter_object: dict | None):
     if (not salter_object) or salter_object.get('name', None) not in salters:
@@ -142,11 +162,13 @@ def compare_hash_salted(file_data: bytes, hash_object: dict, salter_object: dict
         salter = salters[salter_object.get('name', 'none')]
     return salter(salter_object)(file_data, hash_object)
 
+
 def _has_nil(*args):
     for item in args:
         if not item:
             return True
     return False
+
 
 def parse_url_to_fileinfo(url: str) -> FileInfo:
     # 处理 s7c7icu://<slug>/<password>/<meta> 格式的 URL
@@ -169,22 +191,23 @@ def parse_url_to_fileinfo(url: str) -> FileInfo:
             # 检查 pathname 和 hash 是否为空
             if not parsed_url.path.strip('/') or not parsed_url.fragment:
                 raise ValueError("Invalid HTTPS URL format: missing pathname or hash")
-            
+
             # 发起 HEAD 请求获取 header 信息
             response = requests.head(url)
             if response.status_code != 200:
                 raise FetchError("Failed to fetch metadata from the URL")
-            
+
             # 从响应头中获取 meta 信息
             meta_url = response.headers.get("x-s7c7icu-meta-url")
             if not meta_url:
                 raise FetchError("x-s7c7icu-meta-url header is missing")
-            
+
             # pathname 作为 slug，hash 作为 password
             slug = parsed_url.path.strip('/')
             password = parsed_url.fragment
 
-            warnings.warn(f"HTTP URL is not recommended. Replace it with `s7c7icu://{slug}/{password}/{urllib.parse.quote(meta_url)}`.")
+            warnings.warn(
+                f"HTTP URL is not recommended. Replace it with `s7c7icu://{slug}/{password}/{urllib.parse.quote(meta_url)}`.")
             return FileInfo(meta=meta_url, slug=slug, password=password)
 
         except requests.RequestException as e:
@@ -195,6 +218,7 @@ def parse_url_to_fileinfo(url: str) -> FileInfo:
     # 如果都不满足，抛出 ValueError
     else:
         raise ValueError("Unsupported URL format")
+
 
 # 主函数
 def download(info: FileInfo | str,
@@ -209,22 +233,22 @@ def download(info: FileInfo | str,
         info = parse_url_to_fileinfo(info)
     else:
         raise ValueError(f'Invalid info: {info}')
-    
+
     try:
         info.validate()
-        
+
         feedback({"name": "Acquiring Meta"})
-        
+
         # 获取 META 数据
         meta = get_meta(info)
-        
+
         feedback({"name": "Checking Meta"})
-        
+
         # 检查 META 数据的合法性
         validate_meta(meta)
-        
+
         feedback({"name": "Acquiring Data"})
-        
+
         # 获取文件数据
         file_data: bytes
         if "fetch" in meta["data"]:
@@ -240,9 +264,9 @@ def download(info: FileInfo | str,
             file_data = meta["data"]["raw"].encode('ascii')
         else:
             file_data = b""
-        
+
         feedback({"name": "Decrypting"})
-        
+
         # 逆向解码
         algorithms = meta["alg"].split('+')[::-1]
         for algorithm in algorithms:
@@ -256,30 +280,30 @@ def download(info: FileInfo | str,
                 file_data = base64.b64decode(file_data)
             else:
                 raise InvalidAlgorithmError(f"Unknown algorithm: {algorithm}")
-        
+
         feedback({"name": "Verifying"})
-        
+
         # 验证文件大小
         if "size" in meta and meta["size"] >= 0:
             if len(file_data) != meta["size"]:
                 raise SizeMismatchError("File size mismatch")
-        
+
         # 验证哈希值
         compare_hash_salted(
             file_data,
             meta["hash"],
             meta.get('salter') if meta.get('schema') >= 3 else None
         )
-        
+
         feedback({"name": "Downloading"})
-        
+
         filename = base64.b64decode(meta.get("filename", f"{info.slug}.bin")).decode()
-        
+
         if file_receiver:
             file_receiver(file_data, filename)
         else:
             return {"blob": file_data, "filename": filename}
-    
+
     except (InvalidFileException, ValueError) as e:
         feedback({"name": "Error", "detail": {"error_type": str(type(e)), "message": str(e)}})
         raise
@@ -295,9 +319,9 @@ class UploadMethod(ABC):
     DATA = 1
 
     def upload_meta(self, _json, slug_factory: typing.Callable[[], str]) -> str:
-        '''
+        """
         :return: The slug.
-        '''
+        """
         # Upload meta
         meta_dump = json.dumps(_json)
         while True:
@@ -376,13 +400,16 @@ class UploadConfig:
             'custom': self.custom
         }
 
+
 def _gen_code(length: int, characters: str) -> str:
     # 使用secrets模块生成指定长度的密码
     return ''.join(secrets.choice(characters) for _ in range(length))
 
+
 def gen_meta_slug(length: int) -> str:
     characters = string.ascii_letters + string.digits
     return _gen_code(length, characters)
+
 
 def aes_encrypt(data: bytes, password: str) -> bytes:
     raw_pass = base64.urlsafe_b64decode(password.encode('latin1'))
@@ -392,6 +419,7 @@ def aes_encrypt(data: bytes, password: str) -> bytes:
 
 def _aes_encrypt(data: bytes, key: bytes, nonce: bytes) -> bytes:
     return SecretBox(key).encrypt(data, nonce)
+
 
 # 文件加密函数
 def encrypt_file(file_content: bytes, password: str, operations: str = "deflate+aes+base64") -> bytes:
@@ -412,6 +440,7 @@ def encrypt_file(file_content: bytes, password: str, operations: str = "deflate+
                 raise ValueError(f"Unsupported operation: {operation}")
 
     return encrypted_data
+
 
 def upload(filename: str,
            file_content: bytes,
@@ -455,9 +484,10 @@ def upload(filename: str,
     meta_slug = upload_method.upload_meta(meta, lambda: gen_meta_slug(config.meta_slug_len))
 
     link = f'{config.download_url}/{meta_slug}#{password}'
-    
+
     feedback(f'Successfully created meta. Download link: {link}')
     return link
+
 
 def run_upload_program(p_name: str, upload_method_from_config: typing.Callable[[UploadConfig], UploadMethod]):
     try:
@@ -475,14 +505,15 @@ def run_upload_program(p_name: str, upload_method_from_config: typing.Callable[[
         print_as_qr(url)
 
     def main(path_to_file: str, path_to_config: str, filename: str,
-            _file_callback: typing.Callable[[str, str], None] | None = None):
+             _file_callback: typing.Callable[[str, str], None] | None = None):
         config = UploadConfig.from_dict({})
         try:
             with open(path_to_config) as f:
                 config = UploadConfig.from_dict(json.load(f))
         except FileNotFoundError:
             pass
-        if _has_nil(config.encrypt_algorithms, config.meta_slug_len, config.meta_url, config.data_url, config.download_url):
+        if _has_nil(config.encrypt_algorithms, config.meta_slug_len, config.meta_url, config.data_url,
+                    config.download_url):
             print(f'Config file {path_to_config} is uninitialized')
             with open(path_to_config, 'w') as f:
                 json.dump(config.to_dict(), f, indent=4)
@@ -493,16 +524,16 @@ def run_upload_program(p_name: str, upload_method_from_config: typing.Callable[[
         url_callback = (lambda url: _file_callback(path_to_file, url)) if _file_callback else show_url
         # return upload(filename, content, config, url_callback)
         url_callback(upload(filename, content, config, upload_method_from_config(config), print))
-
+        return None
 
     if p_name == '__main__':
         parser = argparse.ArgumentParser(description="s7c7icu uploadClient")
         parser.add_argument('path_to_file', type=str, help="Must be provided.")
         parser.add_argument('-c', '--config', type=str, help="Path of the config file, defaulting to './config'")
         parser.add_argument('-n', '--filename', type=str, help="Override the filename, defaulting to the"
-            "substring of the file path after the very last '/'.")
+                                                               "substring of the file path after the very last '/'.")
         parser.add_argument('-p', '--dumplist', type=str, help="Optionally, you can append filename and uploaded URLs"
-            "to a file specified here. Useful for batches.")
+                                                               "to a file specified here. Useful for batches.")
         args = parser.parse_args()
 
         def file_lister(dump_file: str) -> typing.Callable[[str, str], None]:
@@ -532,6 +563,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+
     def feedback(_d: dict):
         d = dict(_d)
         ret = d.get('name', '')
@@ -542,17 +574,19 @@ if __name__ == '__main__':
             ret += '...' + json.dumps(d)
         print(ret)
         return
-    
+
+
     def file_receiver(content: bytes, filename: str):
         if args.filename:
             filename = args.filename
         pathname = os.path.join(args.outputdir, filename)
-        print('Saved file content to ' + pathname)
+        print(f'Saved file content to {pathname}')
         with open(pathname, 'wb') as f:
             f.write(content)
-    
+
+
     download(
-        info = args.uri,
-        feedback = feedback,
-        file_receiver = file_receiver
+        info=args.uri,
+        feedback=feedback,
+        file_receiver=file_receiver
     )
